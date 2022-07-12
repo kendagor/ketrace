@@ -30,22 +30,30 @@
 #endif
 #endif
 
-#include <string>
 #include <array>
 #include <functional>
+#include <string>
 
 namespace ketrace
 {
-    enum trace_level
+    enum class trace_level
     {
         info,
         warn,
-        error
+        error,
+    };
+
+    enum class error_handler_result_t
+    {
+        result_continue,
+        result_terminate,
+        result_terminate_on_next_trace
     };
 
     class trace_t
     {
-        using error_handler_t = std::function<bool()>;
+        using error_handler_t      = std::function<error_handler_result_t()>;
+
     private:
         const char* str_info  = "info:  ";
         const char* str_warn  = "warn:  ";
@@ -55,13 +63,12 @@ namespace ketrace
         const char* where;
 
         error_handler_t error_handler;
-        bool is_error_fatal;
 
         void trace( const std::string& message, const trace_level& level );
-        void init(const std::string& context_id);
+        void init( const std::string& context_id );
 
     public:
-        trace_t( const char* function_name, const std::string context_id = std::string{} );
+        trace_t( const char* function_name, const std::string context_id = std::string {} );
         trace_t( trace_t& rhs )        = delete;
         trace_t( trace_t&& rhs )       = delete;
         trace_t( const trace_t& rhs )  = delete;
@@ -78,7 +85,10 @@ namespace ketrace
 
         void flush( const std::string& yuml_filename, const std::string& trace_filename );
 
-        void set_error_handler(error_handler_t error_function);
+        void set_error_handler( error_handler_t error_function );
+
+        static error_handler_result_t get_error_handler_result();
+        static void set_error_handler_result( error_handler_result_t error_result );
     };
 
 #define TRACE                        trace_t trace( __PRETTY_FUNCTION__ )

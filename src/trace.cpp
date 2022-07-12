@@ -43,12 +43,18 @@ std::mutex mutex_state_initialization;
 
 thread_local std::stack<std::string>          code_coverage_stack;
 thread_local std::string                      thread_context_id;
-thread_local std::unordered_set<std::string>* local_callflow   = nullptr;
-thread_local std::queue<std::string>*         local_trace_fifo = nullptr;
+thread_local std::unordered_set<std::string>* local_callflow       = nullptr;
+thread_local std::queue<std::string>*         local_trace_fifo     = nullptr;
+thread_local error_handler_result_t           error_handler_result = error_handler_result_t::result_continue;
 
 trace_t::trace_t( const char* const function_name, const std::string context_id )
 {
-    is_error_fatal = true;
+    // If the last operation was fatal
+    if ( error_handler_result == error_handler_result_t::result_terminate_on_next_trace )
+    {
+        std::exit(1);
+    }
+
     where = function_name;
 
     app_assert(
@@ -121,30 +127,28 @@ void trace_t::trace( const std::string& message, const trace_level& level )
     if ( local_trace_fifo == nullptr )
     {
         msg << "local_trace_fifo cannot be nullptr";
-        std::cerr << msg.str();
-        if (error_handler.target<error_handler_t>() != nullptr)
-        {
-            is_error_fatal = error_handler();
-        }
-        if (is_error_fatal)
-        {
-            std::terminate();
-        }
+        std::cerr << msg.str() << std::endl;
     }
     else
     {
         local_trace_fifo->push( msg.str() );
+        std::cout << msg.str() << std::endl;
     }
 
     if ( level == trace_level::error )
     {
-        if (error_handler.target<error_handler_t>() != nullptr)
+        if ( error_handler )
         {
-            is_error_fatal = error_handler();
+            error_handler_result = error_handler();
         }
-        if (is_error_fatal)
+        else
         {
-            std::terminate();
+            error_handler_result = error_handler_result_t::result_terminate;
+        }
+
+        if (error_handler_result == error_handler_result_t::result_terminate)
+        {
+            std::exit(1);
         }
     }
 }
@@ -199,10 +203,23 @@ void trace_t::flush( const std::string& yuml_filename, const std::string& trace_
 
     auto flush_traces = [ & ]( std::queue<std::string>& trace_fifo )
     {
+        bool failed_once = false;
         while ( !trace_fifo.empty() )
         {
-            ofs << trace_fifo.front() << "\n";
-            trace_fifo.pop();
+            try
+            {
+                ofs << trace_fifo.front() << "\n";
+                trace_fifo.pop();
+            }
+            catch ( ... )
+            {
+                if ( failed_once )
+                {
+                    break;
+                }
+                ofs << std::endl;
+                failed_once = true;
+            }
         }
     };
 
@@ -236,7 +253,17 @@ std::string& trace_t::format_function_name( const std::string& pretty_function_n
     return format_cache.at( pretty_function_name );
 }
 
-void trace_t::set_error_handler(error_handler_t error_function)
+void trace_t::set_error_handler( error_handler_t error_function )
 {
     error_handler = error_function;
+}
+
+error_handler_result_t trace_t::get_error_handler_result()
+{
+    return error_handler_result;
+}
+
+void trace_t::set_error_handler_result( error_handler_result_t error_result )
+{
+    error_handler_result = error_result;
 }
